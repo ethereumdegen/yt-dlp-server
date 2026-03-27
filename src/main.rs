@@ -2,7 +2,7 @@ mod config;
 mod handlers;
 mod ytdlp;
 
-use axum::{Router, routing::{get, post}};
+use axum::{Router, extract::DefaultBodyLimit, routing::{get, post}};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
@@ -24,6 +24,7 @@ async fn main() {
         .route("/api/v1/audio", post(handlers::audio))
         .route("/api/v1/subtitles", post(handlers::subtitles))
         .route("/api/v1/audio/split", post(handlers::audio_split))
+        .layer(DefaultBodyLimit::max(512 * 1024 * 1024)) // 512 MB
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(config.clone());
