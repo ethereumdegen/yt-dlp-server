@@ -155,3 +155,57 @@ pub struct SubtitleResult {
     pub text: String,
     pub auto_captions: bool,
 }
+
+/// Split an audio file into segments using ffmpeg.
+/// Returns a sorted list of chunk file paths.
+pub async fn split_audio(
+    audio_path: &Path,
+    segment_seconds: u32,
+    tmp_dir: &Path,
+) -> Result<Vec<std::path::PathBuf>> {
+    let ext = audio_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("m4a");
+
+    let chunk_pattern = tmp_dir.join(format!("chunk_%03d.{}", ext));
+
+    let output = Command::new("ffmpeg")
+        .arg("-i")
+        .arg(audio_path)
+        .arg("-f")
+        .arg("segment")
+        .arg("-segment_time")
+        .arg(segment_seconds.to_string())
+        .arg("-c")
+        .arg("copy")
+        .arg("-y")
+        .arg(&chunk_pattern)
+        .output()
+        .await
+        .context("failed to run ffmpeg (is it installed?)")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("ffmpeg split failed: {}", &stderr[..stderr.len().min(500)]);
+    }
+
+    let mut chunks: Vec<std::path::PathBuf> = Vec::new();
+    let mut entries = tokio::fs::read_dir(tmp_dir).await?;
+    while let Some(entry) = entries.next_entry().await? {
+        let path = entry.path();
+        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+            if name.starts_with("chunk_") {
+                chunks.push(path);
+            }
+        }
+    }
+
+    chunks.sort();
+
+    if chunks.is_empty() {
+        bail!("ffmpeg produced no chunks");
+    }
+
+    Ok(chunks)
+}

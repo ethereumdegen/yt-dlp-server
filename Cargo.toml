@@ -15,3 +15,5 @@ dotenvy = "0.15"
 tempfile = "3"
 tokio-util = { version = "0.7", features = ["io"] }
 anyhow = "1"
+axum-extra = { version = "0.10", features = ["multipart"] }
+base64 = "0.22"

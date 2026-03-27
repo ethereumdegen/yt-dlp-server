@@ -5,6 +5,8 @@ use axum::{
     http::{StatusCode, header},
     response::Response,
 };
+use axum_extra::extract::Multipart;
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use tokio_util::io::ReaderStream;
 
@@ -173,4 +175,99 @@ pub async fn subtitles(
             text: result.text,
         }],
     }))
+}
+
+// --- Audio Split ---
+
+#[derive(Serialize)]
+pub struct SplitResponse {
+    pub chunks: Vec<ChunkEntry>,
+}
+
+#[derive(Serialize)]
+pub struct ChunkEntry {
+    pub index: u32,
+    pub filename: String,
+    pub size: u64,
+    pub data: String, // base64
+}
+
+/// Accepts multipart: `file` (audio bytes) + optional `segment_seconds` (default 600).
+/// Returns JSON with base64-encoded chunks.
+pub async fn audio_split(
+    mut multipart: Multipart,
+) -> Result<Json<SplitResponse>, AppError> {
+    let mut file_bytes: Option<(String, Vec<u8>)> = None;
+    let mut segment_seconds: u32 = 600;
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("multipart error: {e}")))?
+    {
+        let name = field.name().unwrap_or("").to_string();
+        match name.as_str() {
+            "file" => {
+                let filename = field.file_name().unwrap_or("audio.m4a").to_string();
+                let data = field
+                    .bytes()
+                    .await
+                    .map_err(|e| (StatusCode::BAD_REQUEST, format!("failed to read file: {e}")))?;
+                file_bytes = Some((filename, data.to_vec()));
+            }
+            "segment_seconds" => {
+                let val = field.text().await.unwrap_or_default();
+                segment_seconds = val.parse().unwrap_or(600);
+            }
+            _ => {}
+        }
+    }
+
+    let (filename, bytes) = file_bytes
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "missing 'file' field".into()))?;
+
+    let tmp_dir = tempfile::tempdir().map_err(|e| internal(e.into()))?;
+
+    // Write uploaded file to temp dir
+    let ext = std::path::Path::new(&filename)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("m4a");
+    let input_path = tmp_dir.path().join(format!("input.{ext}"));
+    tokio::fs::write(&input_path, &bytes)
+        .await
+        .map_err(|e| internal(e.into()))?;
+
+    // Create a separate dir for chunks so we don't pick up the input file
+    let chunks_dir = tmp_dir.path().join("chunks");
+    tokio::fs::create_dir(&chunks_dir)
+        .await
+        .map_err(|e| internal(e.into()))?;
+
+    let chunk_paths = ytdlp::split_audio(&input_path, segment_seconds, &chunks_dir)
+        .await
+        .map_err(internal)?;
+
+    let b64 = base64::engine::general_purpose::STANDARD;
+    let mut chunks = Vec::with_capacity(chunk_paths.len());
+
+    for (i, path) in chunk_paths.iter().enumerate() {
+        let data = tokio::fs::read(path)
+            .await
+            .map_err(|e| internal(e.into()))?;
+        let size = data.len() as u64;
+        let fname = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| format!("chunk_{i:03}.{ext}"));
+
+        chunks.push(ChunkEntry {
+            index: i as u32,
+            filename: fname,
+            size,
+            data: b64.encode(&data),
+        });
+    }
+
+    Ok(Json(SplitResponse { chunks }))
 }

@@ -23,6 +23,7 @@ async fn main() {
         .route("/api/v1/info", post(handlers::info))
         .route("/api/v1/audio", post(handlers::audio))
         .route("/api/v1/subtitles", post(handlers::subtitles))
+        .route("/api/v1/audio/split", post(handlers::audio_split))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(config.clone());
