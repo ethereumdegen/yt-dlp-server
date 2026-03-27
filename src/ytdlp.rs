@@ -14,6 +14,10 @@ fn cookie_args(config: &Config) -> Vec<String> {
         args.push("--cookies-from-browser".into());
         args.push(browser.clone());
     }
+    if let Some(ref runtimes) = config.js_runtimes {
+        args.push("--js-runtimes".into());
+        args.push(runtimes.clone());
+    }
     args
 }
 

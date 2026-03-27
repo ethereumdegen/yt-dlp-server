@@ -6,6 +6,7 @@ pub struct Config {
     pub ytdlp_path: String,
     pub cookies_path: Option<String>,
     pub cookies_browser: Option<String>,
+    pub js_runtimes: Option<String>,
     pub max_duration: u64,
 }
 
@@ -19,6 +20,7 @@ impl Config {
             ytdlp_path: env::var("YTDLP_PATH").unwrap_or_else(|_| "yt-dlp".into()),
             cookies_path: env::var("YTDLP_COOKIES_PATH").ok(),
             cookies_browser: env::var("YTDLP_COOKIES_BROWSER").ok(),
+            js_runtimes: env::var("YTDLP_JS_RUNTIMES").ok(),
             max_duration: env::var("MAX_DURATION")
                 .ok()
                 .and_then(|v| v.parse().ok())
